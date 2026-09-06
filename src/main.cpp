@@ -254,7 +254,15 @@ int main(int argc, char* argv[]) {
     readOptions();
 
 #ifdef __APPLE__
-    if(MinecraftVersion::isAtLeast(1, 26, 10, 0)) {
+    // MCPELAUNCHER_ANGLE_DIR points at an alternate ANGLE (libEGL + libGLESv2), MCPELAUNCHER_ANGLE_PLATFORM picks
+    // its backend (default metal); used to try ANGLE's Metal backend in place of the Vulkan-on-MoltenVK build.
+    if(const char *angleDir = getenv("MCPELAUNCHER_ANGLE_DIR")) {
+        static std::string altEGL = std::string(angleDir) + "/libEGL.dylib";
+        elg_lib = altEGL.data();
+        const char *platform = getenv("MCPELAUNCHER_ANGLE_PLATFORM");
+        setenv("ANGLE_DEFAULT_PLATFORM", platform ? platform : "metal", true);
+        Log::info("Launcher", "Using ANGLE from %s (platform %s)", angleDir, platform ? platform : "metal");
+    } else if(MinecraftVersion::isAtLeast(1, 26, 10, 0)) {
         std::string appdir = PathHelper::getAppDir();
         std::string libEGL = appdir + "/../Frameworks/mvk-angle/libEGL.dylib";
         std::string MoltenVK_icd = appdir + "/../Frameworks/mvk-angle/MoltenVK_icd.json";

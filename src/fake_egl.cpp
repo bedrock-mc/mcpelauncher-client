@@ -11,6 +11,8 @@
 #undef __ANDROID__
 #include <log.h>
 #include <cstring>
+#include <unistd.h>
+#include <cstdlib>
 #include <game_window.h>
 #include <mcpelauncher/linker.h>
 #ifdef USE_ARMHF_SUPPORT
@@ -212,6 +214,28 @@ void FakeEGL::setupGLOverrides() {
     fake_egl::hostProcOverrides["glVertexAttribDivisorOES"] = nullptr;
     // MESA 23.1 blackscreen Workaround End
     fake_egl::hostProcOverrides["glInvalidateFramebuffer"] = (void *)+[]() {};  // Stub for a NVIDIA bug
+    // The game polls GL_QUERY_RESULT_AVAILABLE in a tight loop, and on ANGLE's Metal backend a query only
+    // resolves once the command buffer is committed at frame end, so a render thread pinned a core per frame.
+    // Flush on a miss and yield so the poll makes progress instead of spinning.
+    if(!getenv("MCPELAUNCHER_NO_QUERY_BACKOFF")) {
+#define MCPELAUNCHER_QUERY_HOOK(fn, T)                                                                          \
+        if(fake_egl::hostProcAddrFn(#fn))                                                                       \
+            fake_egl::hostProcOverrides[#fn] = (void *)+[](unsigned id, unsigned pname, T *params) {            \
+                static auto real = (void (*)(unsigned, unsigned, T *))fake_egl::hostProcAddrFn(#fn);            \
+                real(id, pname, params);                                                                        \
+                if(pname == 0x8867 /* GL_QUERY_RESULT_AVAILABLE */ && *params == 0) {                          \
+                    static auto flush = (void (*)())fake_egl::hostProcAddrFn("glFlush");                        \
+                    if(flush)                                                                                   \
+                        flush();                                                                                \
+                    usleep(100);                                                                                \
+                }                                                                                               \
+            };
+        MCPELAUNCHER_QUERY_HOOK(glGetQueryObjectivEXT, int)
+        MCPELAUNCHER_QUERY_HOOK(glGetQueryObjectuivEXT, unsigned)
+        MCPELAUNCHER_QUERY_HOOK(glGetQueryObjectiv, int)
+        MCPELAUNCHER_QUERY_HOOK(glGetQueryObjectuiv, unsigned)
+#undef MCPELAUNCHER_QUERY_HOOK
+    }
     if(FakeEGL::enableTexturePatch) {
         // Minecraft Intel/Amd Texture Bug 1.16.210-1.17.2 and beyond
         // This patch reduces the visual glitch of blocks, does not work with high resolution textures

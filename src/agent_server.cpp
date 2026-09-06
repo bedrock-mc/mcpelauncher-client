@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <dlfcn.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -398,14 +399,42 @@ void AgentServer::drain() {
         fn();
 }
 
+#ifdef __APPLE__
+extern "C" const char *elg_lib;  // GLFW's libEGL path; libGLESv2 sits beside it
+#endif
+
+// eglGetProcAddress goes through GLFW, which needs a current context on the calling thread; the swapping
+// thread does not always have one, so fall back to the GLES library itself.
+static void *resolveGl(const char *name) {
+    if(void *p = fake_egl::eglGetProcAddress(name))
+        return p;
+#ifdef __APPLE__
+    static void *lib = [] {
+        std::string path = elg_lib ? elg_lib : "libEGL.dylib";
+        auto slash = path.rfind('/');
+        path = (slash == std::string::npos ? std::string() : path.substr(0, slash + 1)) + "libGLESv2.dylib";
+        void *h = dlopen(path.c_str(), RTLD_NOW | RTLD_NOLOAD);
+        return h ? h : dlopen(path.c_str(), RTLD_NOW);
+    }();
+    if(lib)
+        return dlsym(lib, name);
+#endif
+    return nullptr;
+}
+
 void AgentServer::onBeforeSwap(GameWindow *w) {
     if(!captureRequested.load())
         return;
-    static auto glReadPixels = (PFN_glReadPixels)fake_egl::eglGetProcAddress("glReadPixels");
-    static auto glGetIntegerv = (PFN_glGetIntegerv)fake_egl::eglGetProcAddress("glGetIntegerv");
-    static auto glBindFramebuffer = (PFN_glBindFramebuffer)fake_egl::eglGetProcAddress("glBindFramebuffer");
-    static auto glPixelStorei = (PFN_glPixelStorei)fake_egl::eglGetProcAddress("glPixelStorei");
+    static auto glReadPixels = (PFN_glReadPixels)resolveGl("glReadPixels");
+    static auto glGetIntegerv = (PFN_glGetIntegerv)resolveGl("glGetIntegerv");
+    static auto glBindFramebuffer = (PFN_glBindFramebuffer)resolveGl("glBindFramebuffer");
+    static auto glPixelStorei = (PFN_glPixelStorei)resolveGl("glPixelStorei");
     if(!glReadPixels || !glGetIntegerv || !glBindFramebuffer || !glPixelStorei) {
+        static bool warned = false;
+        if(!warned) {
+            warned = true;
+            Log::error("AgentServer", "capture unavailable: could not resolve GL entry points");
+        }
         captureRequested = false;
         return;
     }
