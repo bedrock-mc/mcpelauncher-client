@@ -3,8 +3,28 @@
 #include <log.h>
 #include <curl/curl.h>
 #include <thread>
+#include <array>
+#include <mutex>
 
 using namespace std::placeholders;
+
+// Every request gets its own easy handle on its own thread, so without a share handle each Xbox Live
+// call redoes DNS, TCP and TLS; joining a server issues dozens of them back to back. The share keeps
+// the connection cache, DNS cache and TLS sessions across handles, which is what the Android build's
+// OkHttp pool gives the game natively.
+static CURLSH *sharedCurl() {
+    static std::array<std::mutex, CURL_LOCK_DATA_LAST> locks;
+    static CURLSH *share = [] {
+        auto sh = curl_share_init();
+        curl_share_setopt(sh, CURLSHOPT_LOCKFUNC, +[](CURL *, curl_lock_data data, curl_lock_access, void *) { locks[data].lock(); });
+        curl_share_setopt(sh, CURLSHOPT_UNLOCKFUNC, +[](CURL *, curl_lock_data data, void *) { locks[data].unlock(); });
+        curl_share_setopt(sh, CURLSHOPT_SHARE, CURL_LOCK_DATA_CONNECT);
+        curl_share_setopt(sh, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
+        curl_share_setopt(sh, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+        return sh;
+    }();
+    return share;
+}
 
 bool slist_contains(struct curl_slist *list, const char *str) {
     struct curl_slist *current = list;
@@ -19,6 +39,16 @@ bool slist_contains(struct curl_slist *list, const char *str) {
 
 HttpClientRequest::HttpClientRequest() {
     curl = curl_easy_init();
+    static const bool noShare = getenv("MCPELAUNCHER_HTTP_NO_SHARE") != nullptr;
+    if(!noShare)
+        curl_easy_setopt(curl, CURLOPT_SHARE, sharedCurl());
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+    // The game never passes a timeout through this JNI surface and curl's default is none, so one
+    // unreachable Xbox Live endpoint costs the OS SYN timeout (75 s on macOS, ~2 min on Linux) per
+    // request and stalls sign-in and server joins. The Android stack gives up after 10 s.
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 10000L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, this);
     // Fallback if neither setHttpMethodAndBody or setHttpMethodAndBody2 has been called
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClientRequest::write_callback_wrapper_old);
@@ -154,6 +184,19 @@ void HttpClientRequest::doRequestAsync(FakeJni::JLong sourceCall) {
             auto ret = curl_easy_perform(curl);
             long response_code;
             curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+            static const bool timing = getenv("MCPELAUNCHER_HTTP_TIMING") != nullptr;
+            if(timing) {
+                double total = 0, dns = 0, connect = 0, tls = 0, first = 0;
+                char *url = nullptr;
+                curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &total);
+                curl_easy_getinfo(curl, CURLINFO_NAMELOOKUP_TIME, &dns);
+                curl_easy_getinfo(curl, CURLINFO_CONNECT_TIME, &connect);
+                curl_easy_getinfo(curl, CURLINFO_APPCONNECT_TIME, &tls);
+                curl_easy_getinfo(curl, CURLINFO_STARTTRANSFER_TIME, &first);
+                curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &url);
+                Log::info("HttpTiming", "%s %ld total=%.0fms dns=%.0f connect=%.0f tls=%.0f ttfb=%.0f %s", method.c_str(), response_code,
+                          total * 1000, dns * 1000, connect * 1000, tls * 1000, first * 1000, url ? url : "");
+            }
             anotherme = nullptr; // Clear the shared pointer to avoid dangling reference
             if (me.expired()) {
                 Log::error("HttpClient", "doRequestAsync called, HttpClientRequest is already destroyed");

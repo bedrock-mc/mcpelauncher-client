@@ -248,20 +248,24 @@ json handle(json const &req) {
         return {{"ok", true}};
     }
     if(cmd == "click") {
+        // The UI hit-tests against the cursor position it saw last frame, so a move and a press queued
+        // together land on whatever was under the old position; give the move a frame to settle first.
+        auto settle = std::chrono::milliseconds(0);
         if(req.contains("x") && req.contains("y")) {
             lastMouseX = req["x"].get<double>();
             lastMouseY = req["y"].get<double>();
             double x = lastMouseX, y = lastMouseY;
             enqueue(std::chrono::milliseconds(0), [x, y] { callbacks->onMousePosition(x, y); });
+            settle = std::chrono::milliseconds(req.value("settle_ms", 150));
         }
         int btn = buttonFromJson(req);
         std::string action = req.value("action", "tap");
         auto hold = std::chrono::milliseconds(req.value("hold_ms", 60));
         double x = lastMouseX, y = lastMouseY;
         if(action == "press" || action == "tap")
-            enqueue(std::chrono::milliseconds(0), [x, y, btn] { callbacks->onMouseButton(x, y, btn, MouseButtonAction::PRESS); });
+            enqueue(settle, [x, y, btn] { callbacks->onMouseButton(x, y, btn, MouseButtonAction::PRESS); });
         if(action == "release" || action == "tap")
-            enqueue(action == "tap" ? hold : std::chrono::milliseconds(0), [x, y, btn] { callbacks->onMouseButton(x, y, btn, MouseButtonAction::RELEASE); });
+            enqueue(action == "tap" ? settle + hold : std::chrono::milliseconds(0), [x, y, btn] { callbacks->onMouseButton(x, y, btn, MouseButtonAction::RELEASE); });
         return {{"ok", true}};
     }
     if(cmd == "scroll") {
