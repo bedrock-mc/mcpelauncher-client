@@ -275,6 +275,13 @@ json handle(json const &req) {
         FramePacer::setCap(req.value("cap", 0));
         return {{"ok", true}, {"fps_cap", FramePacer::activeCap(window.get())}};
     }
+    if(cmd == "uri") {
+        std::string uri = req.value("uri", "");
+        if(uri.rfind("minecraft:", 0) != 0)
+            return {{"ok", false}, {"error", "uri must start with minecraft:"}};
+        enqueue(std::chrono::milliseconds(0), [uri] { jni->sendUri(uri); });
+        return {{"ok", true}};
+    }
     if(cmd == "quit") {
         jni->requestExitGame();
         return {{"ok", true}};
