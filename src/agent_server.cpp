@@ -256,7 +256,7 @@ json handle(json const &req) {
             lastMouseY = req["y"].get<double>();
             double x = lastMouseX, y = lastMouseY;
             enqueue(std::chrono::milliseconds(0), [x, y] { callbacks->onMousePosition(x, y); });
-            settle = std::chrono::milliseconds(req.value("settle_ms", 150));
+            settle = std::chrono::milliseconds(req.value("settle_ms", 300));
         }
         int btn = buttonFromJson(req);
         std::string action = req.value("action", "tap");
