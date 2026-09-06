@@ -5,6 +5,7 @@
 #include "gl_core_patch.h"
 #include "core_patches.h"
 #include "fake_egl.h"
+#include "agent_server.h"
 
 #include <sys/poll.h>
 
@@ -92,6 +93,12 @@ void FakeLooper::prepare() {
     CorePatches::setGameWindowCallbacks(associatedWindowCallbacks);
 
     associatedWindow->show();
+    if(options.hiddenWindow)
+        associatedWindow->hide();
+    if(!options.agentSocket.empty()) {
+        associatedWindowCallbacks->forceMouseInput();
+        AgentServer::start(options.agentSocket, associatedWindow, associatedWindowCallbacks, jniSupport);
+    }
     SplitscreenPatch::onGLContextCreated();
     ShaderErrorPatch::onGLContextCreated();
     associatedWindow->makeCurrent(false);
@@ -122,6 +129,7 @@ void FakeLooper::attachInputQueue(int ident, ALooper_callbackFunc callback, void
 
 int FakeLooper::pollAll(int timeoutMillis, int *outFd, int *outEvents, void **outData) {
     associatedWindowCallbacks->startSendEvents();
+    AgentServer::drain();
     if(textInput != jniSupport->getTextInputHandler().isEnabled()) {
         textInput = jniSupport->getTextInputHandler().isEnabled();
         if(textInput) {

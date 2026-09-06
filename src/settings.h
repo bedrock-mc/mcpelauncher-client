@@ -26,6 +26,7 @@ struct Settings {
 
     static bool fullscreen;
     static bool vsync;
+    static int unfocused_fps_cap;
 
     static std::string getPath();
     static void load();

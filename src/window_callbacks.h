@@ -89,6 +89,8 @@ public:
 
     void startSendEvents();
 
+    void forceMouseInput() { forcedMode = InputMode::Mouse; }
+
     void markRequeueGamepadInput() { needsQueueGamepadInput = true; }
 
     void onWindowSizeCallback(int w, int h);

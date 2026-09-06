@@ -11,5 +11,8 @@ struct LauncherOptions {
     GraphicsApi graphicsApi;
     std::string importFilePath;
     std::string sendUri;
+    int fpsCap;
+    bool hiddenWindow;
+    std::string agentSocket;
 };
 extern LauncherOptions options;

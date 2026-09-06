@@ -38,6 +38,7 @@
 #include "symbols.h"
 #include "core_patches.h"
 #include "thread_mover.h"
+#include "frame_pacer.h"
 #include <FileUtil.h>
 #include <properties/property.h>
 #include <fstream>
@@ -166,6 +167,9 @@ int main(int argc, char* argv[]) {
     argparser::arg<bool> freeOnly(p, "--free-only", "-f", "Only allow starting free versions", false);
     argparser::arg<bool> emulateTouch(p, "--emulate-touch", "-et", "Emulate touch with mouse", false);
     argparser::arg<std::string> mods(p, "--mods", "-m", "Additional directories to load mods from split by ','", "");
+    argparser::arg<int> fpsCap(p, "--fps-cap", "-fps", "Limit rendering to this many frames per second (0 = only the unfocused cap from settings)", 0);
+    argparser::arg<bool> hiddenWindow(p, "--hidden", "-hw", "Keep the game window hidden", false);
+    argparser::arg<std::string> agentSocket(p, "--agent-socket", "-as", "Unix socket path for the agent control server", "");
 
     if(!p.parse(argc, (const char**)argv))
         return 1;
@@ -180,6 +184,10 @@ int main(int argc, char* argv[]) {
     options.graphicsApi = forceEgl.get() ? GraphicsApi::OPENGL_ES2 : GraphicsApi::OPENGL;
     options.useStdinImport = stdinImpt;
     options.emulateTouch = emulateTouch;
+    options.fpsCap = fpsCap.get();
+    options.hiddenWindow = hiddenWindow.get();
+    options.agentSocket = agentSocket.get();
+    FramePacer::setCap(options.fpsCap);
     std::vector<std::string> modDirs;
     for(size_t i = 0; i < mods.get().length();) {
         auto r = mods.get().find(',', i);

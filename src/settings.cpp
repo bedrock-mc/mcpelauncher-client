@@ -25,6 +25,7 @@ float Settings::scale;
 std::string Settings::menubarFocusKey;
 bool Settings::fullscreen;
 bool Settings::vsync;
+int Settings::unfocused_fps_cap;
 
 char GameOptions::leftKey = 'A';
 char GameOptions::downKey = 'S';
@@ -58,6 +59,7 @@ static properties::property<float> scale(settings, "scale", 1);
 static properties::property<std::string> menubarFocusKey(settings, "menubarFocusKey", "");
 static properties::property<bool> fullscreen(settings, "fullscreen", /* default if not defined*/ false);
 static properties::property<bool> vsync(settings, "vsync", /* default if not defined*/ true);
+static properties::property<int> unfocused_fps_cap(settings, "unfocused_fps_cap", /* default if not defined*/ 15);
 
 std::string Settings::getPath() {
     return PathHelper::getPrimaryDataDirectory() + "mcpelauncher-client-settings.txt";
@@ -92,6 +94,7 @@ void Settings::load() {
     Settings::menubarFocusKey = ::menubarFocusKey.get();
     Settings::fullscreen = ::fullscreen.get();
     Settings::vsync = ::vsync.get();
+    Settings::unfocused_fps_cap = ::unfocused_fps_cap.get();
 }
 
 void Settings::save() {
@@ -119,6 +122,7 @@ void Settings::save() {
     std::ofstream propertiesFile(getPath());
     ::fullscreen.set(Settings::fullscreen);
     ::vsync.set(Settings::vsync);
+    ::unfocused_fps_cap.set(Settings::unfocused_fps_cap);
     if(propertiesFile) {
         settings.save(propertiesFile);
     }

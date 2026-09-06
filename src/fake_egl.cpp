@@ -1,6 +1,8 @@
 #include "fake_egl.h"
 #include "gl_core_patch.h"
 #include "settings.h"
+#include "agent_server.h"
+#include "frame_pacer.h"
 #include "imgui_ui.h"
 #include <map>
 
@@ -121,7 +123,9 @@ EGLBoolean eglSwapBuffers(EGLDisplay display, EGLSurface surface) {
 #ifdef USE_IMGUI
     ImGuiUIDrawFrame((GameWindow *)surface);
 #endif
+    AgentServer::onBeforeSwap((GameWindow *)surface);
     ((GameWindow *)surface)->swapBuffers();
+    FramePacer::afterSwap((GameWindow *)surface);
     return EGL_TRUE;
 }
 
