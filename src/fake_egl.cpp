@@ -223,11 +223,34 @@ void FakeEGL::setupGLOverrides() {
             fake_egl::hostProcOverrides[#fn] = (void *)+[](unsigned id, unsigned pname, T *params) {            \
                 static auto real = (void (*)(unsigned, unsigned, T *))fake_egl::hostProcAddrFn(#fn);            \
                 real(id, pname, params);                                                                        \
-                if(pname == 0x8867 /* GL_QUERY_RESULT_AVAILABLE */ && *params == 0) {                          \
-                    static auto flush = (void (*)())fake_egl::hostProcAddrFn("glFlush");                        \
-                    if(flush)                                                                                   \
-                        flush();                                                                                \
-                    usleep(100);                                                                                \
+                if(pname == 0x8867 /* GL_QUERY_RESULT_AVAILABLE */) {                                          \
+                    static thread_local unsigned lastId = 0, misses = 0;                                       \
+                    if(*params != 0) {                                                                          \
+                        misses = 0;                                                                             \
+                    } else if(lastId != id) {                                                                   \
+                        lastId = id;                                                                            \
+                        misses = 1;                                                                             \
+                    } else if(++misses > 5000) {   /* ~0.5 s: only a backend that will never answer */                                                                 \
+                        /* the backend is never going to resolve this query; the game only reads them for */    \
+                        /* GPU timing, so report it done rather than stall the frame */                         \
+                        static bool warned = false;                                                             \
+                        if(!warned) {                                                                           \
+                            warned = true;                                                                      \
+                            Log::warn("FakeEGL", #fn ": query %u never became available, reporting it done", id); \
+                        }                                                                                       \
+                        *params = 1;                                                                            \
+                        misses = 0;                                                                             \
+                        return;                                                                                 \
+                    }                                                                                           \
+                    if(*params == 0) {                                                                          \
+                        /* flush once so the query's commands are submitted, then just yield */                 \
+                        if(misses == 1) {                                                                       \
+                            static auto flush = (void (*)())fake_egl::hostProcAddrFn("glFlush");                \
+                            if(flush)                                                                           \
+                                flush();                                                                        \
+                        }                                                                                       \
+                        usleep(100);                                                                            \
+                    }                                                                                           \
                 }                                                                                               \
             };
         MCPELAUNCHER_QUERY_HOOK(glGetQueryObjectivEXT, int)

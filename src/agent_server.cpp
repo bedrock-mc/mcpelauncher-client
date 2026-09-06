@@ -440,6 +440,9 @@ void AgentServer::onBeforeSwap(GameWindow *w) {
     }
     int width = 0, height = 0;
     w->getWindowSize(width, height);
+    static const bool debug = getenv("MCPELAUNCHER_CAPTURE_DEBUG") != nullptr;
+    if(debug)
+        Log::info("AgentServer", "capture: swap thread reached, size %dx%d", width, height);
     if(width <= 0 || height <= 0)
         return;
     std::lock_guard<std::mutex> lock(captureMutex);
@@ -456,5 +459,7 @@ void AgentServer::onBeforeSwap(GameWindow *w) {
     captureHeight = height;
     captureRequested = false;
     captureReady = true;
+    if(debug)
+        Log::info("AgentServer", "capture: read back %dx%d, first pixel %02x%02x%02x", width, height, capturePixels[0], capturePixels[1], capturePixels[2]);
     captureCv.notify_all();
 }
