@@ -6,6 +6,10 @@
 #include "core_patches.h"
 #include "fake_egl.h"
 #include "agent_server.h"
+#ifdef __APPLE__
+#include "macos_dock.h"
+#include <mcpelauncher/path_helper.h>
+#endif
 
 #include <sys/poll.h>
 
@@ -79,6 +83,9 @@ void FakeLooper::initializeWindow() {
     associatedWindow = GameWindowManager::getManager()->createWindow("Minecraft",
                                                                      options.windowWidth, options.windowHeight, options.graphicsApi);
     FakeEGL::setupGLOverrides();
+#ifdef __APPLE__
+    macos_set_dock_icon((PathHelper::getAppDir() + "/../Resources/minecraft.icns").c_str());
+#endif
 }
 
 void FakeLooper::prepare() {

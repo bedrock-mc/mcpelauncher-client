@@ -21,6 +21,13 @@ else()
     target_link_libraries(mcpelauncher-client OpenSSL::Crypto)
 endif()
 
+if (APPLE)
+    # Compiled as Objective-C++ through the C++ toolchain; enabling OBJCXX inside a subdirectory trips CMake.
+    set_source_files_properties(src/macos_dock.mm PROPERTIES LANGUAGE CXX COMPILE_OPTIONS "-x;objective-c++")
+    target_sources(mcpelauncher-client PRIVATE src/macos_dock.mm src/macos_dock.h)
+    target_link_libraries(mcpelauncher-client "-framework AppKit")
+endif()
+
 if (IS_ARM_BUILD)
     if (IS_ARMHF_BUILD AND NOT IS_64BIT)
         target_sources(mcpelauncher-client PRIVATE src/armhf_support.cpp src/armhf_support.h)
