@@ -166,7 +166,7 @@ int main(int argc, char* argv[]) {
     argparser::arg<bool> resetSettings(p, "--reset-settings", "-gs", "Save the default Settings", false);
     argparser::arg<bool> freeOnly(p, "--free-only", "-f", "Only allow starting free versions", false);
     argparser::arg<bool> emulateTouch(p, "--emulate-touch", "-et", "Emulate touch with mouse", false);
-    argparser::arg<std::string> mods(p, "--mods", "-m", "Additional directories to load mods from split by ','", "");
+    argparser::arg<std::vector<std::string>> mods(p, "--mods", "-m", "Additional directories to load mods from split by ','");
     argparser::arg<int> fpsCap(p, "--fps-cap", "-fps", "Limit rendering to this many frames per second (0 = only the unfocused cap from settings)", 0);
     argparser::arg<bool> hiddenWindow(p, "--hidden", "-hw", "Keep the game window hidden", false);
     argparser::arg<std::string> agentSocket(p, "--agent-socket", "-as", "Unix socket path for the agent control server", "");
@@ -189,14 +189,16 @@ int main(int argc, char* argv[]) {
     options.agentSocket = agentSocket.get();
     FramePacer::setCap(options.fpsCap);
     std::vector<std::string> modDirs;
-    for(size_t i = 0; i < mods.get().length();) {
-        auto r = mods.get().find(',', i);
-        if(r == std::string::npos) {
-            modDirs.push_back(normalizePath(mods.get().substr(i)));
-            break;
-        } else {
-            modDirs.push_back(normalizePath(mods.get().substr(i, r - i)));
-            i = r + 1;
+    for(auto&& m : mods.get()) {
+        for(size_t i = 0; i < m.length();) {
+            auto r = m.find(',', i);
+            if(r == std::string::npos) {
+                modDirs.push_back(normalizePath(m.substr(i)));
+                break;
+            } else {
+                modDirs.push_back(normalizePath(m.substr(i, r - i)));
+                i = r + 1;
+            }
         }
     }
 
@@ -637,7 +639,7 @@ Hardware	: Qualcomm Technologies, Inc MSM8998
     });
     std::thread startThread([&support]() {
         ThreadMover::storeStartThreadId();
-        support.startGame((ANativeActivity_createFunc*)linker::dlsym(handle, "ANativeActivity_onCreate"), (GameActivity_createFunc*)linker::dlsym(handle, "GameActivity_onCreate"),
+        support.startGame((ANativeActivity_createFunc*)linker::dlsym(handle, "ANativeActivity_onCreate"), handle,
                           linker::dlsym(handle, "stbi_load_from_memory"),
                           linker::dlsym(handle, "stbi_image_free"));
         linker::dlclose(handle);
