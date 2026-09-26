@@ -48,5 +48,12 @@ struct FakeEGL {
 
     static void setupGLOverrides();
 
+    // Keep the game loop running while omitting raster work between requested captures.
+    // The draw decision changes only at a swap boundary, so captures see a full frame.
+    static void setRenderOnDemand(bool enabled);
+    static bool renderOnDemand();
+    static bool drawingThisFrame();
+    static void selectNextFrame(bool capturePending);
+
     static bool enableTexturePatch;
 };

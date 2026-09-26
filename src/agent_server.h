@@ -17,4 +17,5 @@ public:
     static void drain();
 
     static void onBeforeSwap(GameWindow *window);
+    static bool capturePending();
 };

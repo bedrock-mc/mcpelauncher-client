@@ -5,6 +5,7 @@
 #include "frame_pacer.h"
 #include "imgui_ui.h"
 #include <map>
+#include <atomic>
 
 #define __ANDROID__
 #include <EGL/egl.h>
@@ -21,6 +22,24 @@
 
 std::vector<FakeEGL::SwapBuffersCallback> FakeEGL::swapBuffersCallbacks = {};
 std::mutex FakeEGL::swapBuffersCallbacksLock;
+static std::atomic<bool> onDemandMode{false};
+static std::atomic<bool> drawThisFrame{true};
+
+void FakeEGL::setRenderOnDemand(bool enabled) {
+    onDemandMode.store(enabled, std::memory_order_relaxed);
+}
+
+bool FakeEGL::renderOnDemand() {
+    return onDemandMode.load(std::memory_order_relaxed);
+}
+
+bool FakeEGL::drawingThisFrame() {
+    return drawThisFrame.load(std::memory_order_relaxed);
+}
+
+void FakeEGL::selectNextFrame(bool capturePending) {
+    drawThisFrame.store(!renderOnDemand() || capturePending, std::memory_order_relaxed);
+}
 
 namespace fake_egl {
 
@@ -127,6 +146,7 @@ EGLBoolean eglSwapBuffers(EGLDisplay display, EGLSurface surface) {
 #endif
     AgentServer::onBeforeSwap((GameWindow *)surface);
     ((GameWindow *)surface)->swapBuffers();
+    FakeEGL::selectNextFrame(AgentServer::capturePending());
     FramePacer::afterSwap((GameWindow *)surface);
     return EGL_TRUE;
 }
@@ -214,6 +234,38 @@ void FakeEGL::setupGLOverrides() {
     fake_egl::hostProcOverrides["glVertexAttribDivisorOES"] = nullptr;
     // MESA 23.1 blackscreen Workaround End
     fake_egl::hostProcOverrides["glInvalidateFramebuffer"] = (void *)+[]() {};  // Stub for a NVIDIA bug
+    // The game resolves GLES entry points through this table once at startup. Keep stable wrappers
+    // and switch only their draw behavior at swap boundaries; other GL state calls still run.
+    if(fake_egl::hostProcAddrFn("glDrawArrays"))
+        fake_egl::hostProcOverrides["glDrawArrays"] = (void *)+[](unsigned mode, int first, int count) {
+            static auto real = (void (*)(unsigned, int, int))fake_egl::hostProcAddrFn("glDrawArrays");
+            if(FakeEGL::drawingThisFrame()) real(mode, first, count);
+        };
+    if(fake_egl::hostProcAddrFn("glDrawElements"))
+        fake_egl::hostProcOverrides["glDrawElements"] = (void *)+[](unsigned mode, int count, unsigned type, const void *indices) {
+            static auto real = (void (*)(unsigned, int, unsigned, const void *))fake_egl::hostProcAddrFn("glDrawElements");
+            if(FakeEGL::drawingThisFrame()) real(mode, count, type, indices);
+        };
+    if(fake_egl::hostProcAddrFn("glDrawArraysInstanced"))
+        fake_egl::hostProcOverrides["glDrawArraysInstanced"] = (void *)+[](unsigned mode, int first, int count, int instances) {
+            static auto real = (void (*)(unsigned, int, int, int))fake_egl::hostProcAddrFn("glDrawArraysInstanced");
+            if(FakeEGL::drawingThisFrame()) real(mode, first, count, instances);
+        };
+    if(fake_egl::hostProcAddrFn("glDrawElementsInstanced"))
+        fake_egl::hostProcOverrides["glDrawElementsInstanced"] = (void *)+[](unsigned mode, int count, unsigned type, const void *indices, int instances) {
+            static auto real = (void (*)(unsigned, int, unsigned, const void *, int))fake_egl::hostProcAddrFn("glDrawElementsInstanced");
+            if(FakeEGL::drawingThisFrame()) real(mode, count, type, indices, instances);
+        };
+    if(fake_egl::hostProcAddrFn("glDrawArraysIndirect"))
+        fake_egl::hostProcOverrides["glDrawArraysIndirect"] = (void *)+[](unsigned mode, const void *indirect) {
+            static auto real = (void (*)(unsigned, const void *))fake_egl::hostProcAddrFn("glDrawArraysIndirect");
+            if(FakeEGL::drawingThisFrame()) real(mode, indirect);
+        };
+    if(fake_egl::hostProcAddrFn("glDrawElementsIndirect"))
+        fake_egl::hostProcOverrides["glDrawElementsIndirect"] = (void *)+[](unsigned mode, unsigned type, const void *indirect) {
+            static auto real = (void (*)(unsigned, unsigned, const void *))fake_egl::hostProcAddrFn("glDrawElementsIndirect");
+            if(FakeEGL::drawingThisFrame()) real(mode, type, indirect);
+        };
     // The game polls GL_QUERY_RESULT_AVAILABLE in a tight loop, and on ANGLE's Metal backend a query only
     // resolves once the command buffer is committed at frame end, so a render thread pinned a core per frame.
     // Flush on a miss and yield so the poll makes progress instead of spinning.

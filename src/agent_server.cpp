@@ -216,7 +216,8 @@ json handle(json const &req) {
         window->getWindowSize(w, h);
         return {{"ok", true}, {"width", w}, {"height", h}, {"focused", window->isFocused()},
                 {"cursor_locked", window->getCursorDisabled()}, {"fps", FramePacer::measuredFps()},
-                {"fps_cap", FramePacer::activeCap(window.get())}, {"mouse_x", lastMouseX}, {"mouse_y", lastMouseY}};
+                {"fps_cap", FramePacer::activeCap(window.get())}, {"render_on_demand", FakeEGL::renderOnDemand()},
+                {"mouse_x", lastMouseX}, {"mouse_y", lastMouseY}};
     }
     if(cmd == "key") {
         auto key = keyFromName(req.value("key", ""));
@@ -279,6 +280,11 @@ json handle(json const &req) {
     if(cmd == "fps") {
         FramePacer::setCap(req.value("cap", 0));
         return {{"ok", true}, {"fps_cap", FramePacer::activeCap(window.get())}};
+    }
+    if(cmd == "render") {
+        bool onDemand = req.value("on_demand", false);
+        FakeEGL::setRenderOnDemand(onDemand);
+        return {{"ok", true}, {"render_on_demand", onDemand}};
     }
     if(cmd == "uri") {
         std::string uri = req.value("uri", "");
@@ -423,7 +429,7 @@ static void *resolveGl(const char *name) {
 }
 
 void AgentServer::onBeforeSwap(GameWindow *w) {
-    if(!captureRequested.load())
+    if(!captureRequested.load() || !FakeEGL::drawingThisFrame())
         return;
     static auto glReadPixels = (PFN_glReadPixels)resolveGl("glReadPixels");
     static auto glGetIntegerv = (PFN_glGetIntegerv)resolveGl("glGetIntegerv");
@@ -462,4 +468,8 @@ void AgentServer::onBeforeSwap(GameWindow *w) {
     if(debug)
         Log::info("AgentServer", "capture: read back %dx%d, first pixel %02x%02x%02x", width, height, capturePixels[0], capturePixels[1], capturePixels[2]);
     captureCv.notify_all();
+}
+
+bool AgentServer::capturePending() {
+    return captureRequested.load();
 }
